@@ -135,34 +135,6 @@ export function PracticeScreen() {
     }
   }
 
-  // Voice flow now only transcribes and stores the text; no per-question evaluation
-  // async function submitVoiceBlob(blob: Blob) {
-  //   setLoading(true)
-  //   setAllFeedback(null)
-  //   try {
-  //     const formData = new FormData()
-  //     formData.append("audio", blob, "answer.webm")
-  //     const stt = await fetch("/api/speech-to-text", { method: "POST", body: formData })
-  //     if (!stt.ok) throw new Error("Failed to transcribe audio")
-  //     const { transcript } = await stt.json()
-
-  //     setAnswers((prev) => {
-  //       const copy = prev.slice()
-  //       copy[index] = transcript || ""
-  //       return copy
-  //     })
-  //     setModes((prev) => {
-  //       const copy = prev.slice()
-  //       copy[index] = "voice"
-  //       return copy
-  //     })
-  //   } catch (e) {
-  //     console.error("[v0] voice transcription error", e)
-  //   } finally {
-  //     setLoading(false)
-  //   }
-  // }
-
   function nextQuestion() {
     setIndex((i) => Math.min(i + 1, Math.max(questions.length - 1, 0)))
   }
@@ -242,13 +214,13 @@ export function PracticeScreen() {
         {/* Question with TTS controls */}
         <div className="p-4 rounded-md border bg-card">
           <p className="text-lg">{question}</p>
-          <div className="mt-3 flex gap-2">
+          {/*<div className="mt-3 flex gap-2">
             {ttsSupported && (
               <Button variant="outline" size="sm" onClick={toggleSpeakQuestion}>
                 {ttsPlaying ? "Stop" : "Play question"}
               </Button>
-            )}
-          </div>
+            )} 
+          </div> */}
         </div>
 
         {/* Text answer */}

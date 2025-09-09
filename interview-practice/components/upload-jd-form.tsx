@@ -65,27 +65,9 @@ export function JDUploadForm() {
       const allQuestions = Object.values(data.questions).flat();
       console.log(allQuestions);
 
-      // const genRes = await fetch("/api/generate-questions", {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify({
-      //     jd: combinedJD,
-      //     user_id,
-      //     skills: parsed.skills,
-      //     keywords: parsed.keywords,
-      //   }),
-      // })
-      // if (!genRes.ok) throw new Error("Failed to generate questions")
-      // const data = await genRes.json()
-
-      // // ✅ Store only questions
-      // sessionStorage.setItem("generated_questions", JSON.stringify(data.questions || {}));
-      // // ✅ Redirect to Next.js PAGE (not API route)
-      // router.push("/generate-questions");
-
-      // ✅ Store only questions
+      // Store only questions
       sessionStorage.setItem("practice_questions", JSON.stringify(allQuestions || {}));
-      // ✅ Redirect to Next.js PAGE (not API route)
+      // Redirect to Next.js PAGE (not API route)
       router.push("/practice");
     } catch (err: any) {
       setError(err.message || "Something went wrong.")

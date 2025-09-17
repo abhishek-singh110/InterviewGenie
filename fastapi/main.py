@@ -2,21 +2,73 @@ import json
 from typing import Dict, List
 import io
 import os
+import asyncio
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Response, UploadFile, File, Form, HTTPException
-from gtts import gTTS
-from pydantic import BaseModel
+# from gtts import gTTS
+# from pydantic import BaseModel
 import json
 import httpx
-import requests
+# import requests
 import speech_recognition as sr
-import shutil
+# import shutil
 
 from schemas.users import JDRequest, EvaluateRequest
 
-app = FastAPI()
+
+
+
+import os
+import asyncio
+from datetime import datetime, timedelta
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
+AUDIO_DIR = "your_audio_dir_path"  # change to your folder path
+
+async def delete_old_files():
+    while True:
+        now = datetime.now()
+        for filename in os.listdir(AUDIO_DIR):
+            file_path = os.path.join(AUDIO_DIR, filename)
+            if os.path.isfile(file_path):
+                try:
+                    # Extract timestamp from the second last underscore-separated part
+                    parts = filename.rsplit("_", maxsplit=2)
+                    if len(parts) < 2:
+                        continue
+                    timestamp_str = parts[-2]
+                    file_time = datetime.strptime(timestamp_str, "%Y%m%d%H%M%S")
+                    
+                    # ✅ Delete if older than 1 minute
+                    if now - file_time > timedelta(minutes=30):
+                        os.remove(file_path)
+                        print(f"🗑️ Deleted file: {filename}")
+                except Exception as e:
+                    print(f"⚠️ Skipping file {filename} due to error: {e}")
+        
+        # ✅ Check every 30 seconds
+        await asyncio.sleep(1800)
+
+# Lifespan context manager
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: launch cleanup task
+    task = asyncio.create_task(delete_old_files())
+    yield
+    # Shutdown: cancel cleanup task if needed
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        print("Cleanup task cancelled")
+
+app = FastAPI(lifespan=lifespan)
+
 
 # Optional: Enable CORS if using from frontend like React/Vue
 app.add_middleware(
@@ -30,15 +82,13 @@ app.add_middleware(
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
 # Directory to save audio files
-AUDIO_DIR = "audio_files"
+AUDIO_DIR = "media"
 os.makedirs(AUDIO_DIR, exist_ok=True)
 # Mount static route to serve saved audio files
 app.mount("/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 
 QUESTIONS = {}
-
-MEDIA_ROOT = "media"
 
 # Simulated session storage
 user_sessions = {}
@@ -111,20 +161,52 @@ async def evaluate_with_llm(question: str, answer: str) -> Dict:
 
 
 @app.post("/extract-and-generate/{user_id}")
-async def extract_and_generate(request: JDRequest, user_id: str):
+async def extract_and_generate(
+    user_id: str,
+    jd_text: str = Form(None),
+    file: UploadFile = File(None)
+):
     """
-    Extract skills from job description and generate interview questions.
+    Extract skills from job description text or uploaded file,
+    then generate interview questions.
     """
+    if jd_text and file:
+        return {"error": "Please provide either text OR file, not both."}
+    # ✅ 1. Get JD text either from form field or file
+    content = ""
+    if jd_text:
+        content = jd_text
+    elif file:
+        file_content = await file.read()
+        # If it's a text file
+        if file.filename.endswith(".txt"):
+            content = file_content.decode("utf-8")
+        # If it's a pdf (use PyPDF2 or pdfplumber)
+        elif file.filename.endswith(".pdf"):
+            import fitz
+            with fitz.open(stream=file_content, filetype="pdf") as doc:
+                content = "\n".join(page.get_text() for page in doc)
+        # If it's a docx
+        elif file.filename.endswith(".docx"):
+            from docx import Document
+            import io
+            doc = Document(io.BytesIO(file_content))
+            content = "\n".join([p.text for p in doc.paragraphs])
+        else:
+            return {"error": "Unsupported file format"}
 
-    print("user_id:", user_id)
-    # Extract skills
+    if not content:
+        return {"error": "No job description text or file provided"}
+
+    print("Job Description Content:", content[:200])  # Print first 200 chars
+    # ✅ 2. Extract skills (your same prompt logic)
     extract_prompt = f"""
     Extract all technical skills, programming languages, frameworks, libraries and tools mentioned in this job description. 
 
     Return only a JSON list of the extracted items, with no additional text or explanation.
 
     Job Description:
-    {request.jd_text}
+    {content}
     """
 
     extracted_text = await call_ollama("qwen2.5:7b", extract_prompt)
@@ -134,9 +216,8 @@ async def extract_and_generate(request: JDRequest, user_id: str):
     except Exception:
         extracted_skills = [s.strip() for s in extracted_text.split(",") if s.strip()]
 
-    # Generate questions
+    # 3. Generate questions
     skills_str = ", ".join(extracted_skills)
-    print("skills_str:", skills_str)
     questions_prompt = f"""
         You are an expert technical interviewer.
         Generate interview questions for the following skills:
@@ -159,9 +240,9 @@ async def extract_and_generate(request: JDRequest, user_id: str):
     except Exception:
         QUESTIONS = questions_text
 
-    # Store session data
+    # ✅ 4. Store session data
     user_sessions[user_id] = {
-        "jd_text": request.jd_text,
+        "jd_text": content,
         "extracted_skills": extracted_skills,
         "questions": QUESTIONS
     }
@@ -171,7 +252,6 @@ async def extract_and_generate(request: JDRequest, user_id: str):
         "skills": extracted_skills,
         "questions": QUESTIONS
     }
-
 
 @app.post("/evaluate-answers")
 async def evaluate_answers(payload: EvaluateRequest):
@@ -208,7 +288,7 @@ async def speech_to_text(
 
     try:
         # Create folder media/<user_id> if not exists
-        user_folder = os.path.join(MEDIA_ROOT, user_id)
+        user_folder = os.path.join(AUDIO_DIR, user_id)
         os.makedirs(user_folder, exist_ok=True)
 
         # Save uploaded file to media/<user_id>/
